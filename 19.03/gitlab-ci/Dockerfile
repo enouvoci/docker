@@ -1,7 +1,7 @@
 FROM docker:19.03
 
 ENV KUSTOMIZE_VERSION 3.8.1
-ENV KUBECTL_VERSION $(curl -s https://storage.googleapis.com/kubernetes-release/release/latest.txt)
+ENV KUBECTL_VERSION 1.18.0
 
 RUN apk add --no-cache \
         git \
