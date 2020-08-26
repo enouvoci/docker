@@ -2,7 +2,7 @@
 set -eu
 
 declare -A aliases=(
-	[18.06]='edge'
+	#[18.06]='edge'
 )
 
 # used for auto-detecting the "latest" of each channel (for tagging it appropriately)
@@ -13,6 +13,26 @@ self="$(basename "$BASH_SOURCE")"
 cd "$(dirname "$(readlink -f "$BASH_SOURCE")")"
 
 source '.architectures-lib'
+
+parentArches() {
+	local version="$1"; shift # "17.06", etc
+
+	local parent="$(awk 'toupper($1) == "FROM" { print $2 }' "$version/Dockerfile")"
+	echo "${parentRepoToArches[$parent]:-}"
+}
+versionArches() {
+	local version="$1"; shift
+
+	local parentArches="$(parentArches "$version")"
+
+	local versionArches=()
+	for arch in $parentArches; do
+		if hasBashbrewArch "$arch" && grep -qE "^# $arch\$" "$version/Dockerfile"; then
+			versionArches+=( "$arch" )
+		fi
+	done
+	echo "${versionArches[*]}"
+}
 
 versions=( */ )
 versions=( "${versions[@]%/}" )
@@ -64,6 +84,16 @@ for version in "${versions[@]}"; do
 
 	fullVersion="$(git show "$commit":"$version/Dockerfile" | awk '$1 == "ENV" && $2 == "DOCKER_VERSION" { print $3; exit }')"
 
+	if [ "$rcVersion" != "$version" ] && [ -e "$rcVersion/Dockerfile" ]; then
+		# if this is a "-rc" release, let's make sure the release it contains isn't already GA (and thus something we should not publish anymore)
+		rcFullVersion="$(git show HEAD:"$rcVersion/Dockerfile" | awk '$1 == "ENV" && $2 == "DOCKER_VERSION" { print $3; exit }')"
+		latestVersion="$({ echo "$fullVersion"; echo "$rcFullVersion"; } | sort -V | tail -1)"
+		if [[ "$fullVersion" == "$rcFullVersion"* ]] || [ "$latestVersion" = "$rcFullVersion" ]; then
+			# "x.y.z-rc1" == x.y.z*
+			continue
+		fi
+	fi
+
 	versionAliases=()
 	if [ "$version" = "$rcVersion" ]; then
 		while [ "$fullVersion" != "$rcVersion" -a "${fullVersion%[.-]*}" != "$fullVersion" ]; do
@@ -92,12 +122,12 @@ for version in "${versions[@]}"; do
 		${aliases[$version]:-}
 	)
 	if [ -z "${latestChannelRelease[$channel]:-}" ]; then
-		versionAliases+=( "$channel" )
+		if [ "$rcVersion" = '19.03' ]; then versionAliases+=( "$channel" ); fi # 19.03 is the last release to include any "channel" aliases
 		latestChannelRelease[$channel]="$version"
 	fi
 	# every release goes into the "test" channel, so the biggest numbered release wins (RC or not)
 	if [ -z "${latestChannelRelease['test']:-}" ]; then
-		versionAliases+=( 'test' )
+		if [ "$rcVersion" = '19.03' ]; then versionAliases+=( 'test' ); fi # 19.03 is the last release to include any "channel" aliases
 		latestChannelRelease['test']="$version"
 	fi
 	if [ "$version" = "$rcVersion" ] && [ -z "${latestChannelRelease['latest']:-}" ]; then
@@ -116,7 +146,7 @@ for version in "${versions[@]}"; do
 	EOE
 
 	for v in \
-		dind git \
+		dind dind-rootless git \
 		windows/windowsservercore-{ltsc2016,1709} \
 	; do
 		dir="$version/$v"
@@ -129,6 +159,10 @@ for version in "${versions[@]}"; do
 		variantAliases=( "${variantAliases[@]//latest-/}" )
 
 		case "$v" in
+			# https://github.com/docker/docker-ce/blob/8fb3bb7b2210789a4471c017561c1b0de0b4f145/components/engine/hack/make/binary-daemon#L24
+			# "vpnkit is amd64-only" ... for now??
+			dind-rootless) variantArches='amd64' ;;
+
 			windows/*) variantArches='windows-amd64' ;;
 			*)         variantArches="$versionArches" ;;
 		esac

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 
-defaultAlpineVersion='3.8'
+defaultAlpineVersion='3.12'
 declare -A alpineVersion=(
 	#[17.09]='3.6'
 )
@@ -63,8 +63,6 @@ dockerVersions="$(
 		'
 )"
 
-travisEnv=
-appveyorEnv=
 for version in "${versions[@]}"; do
 	rcVersion="${version%-rc}"
 
@@ -87,9 +85,14 @@ for version in "${versions[@]}"; do
 
 	archCase='apkArch="$(apk --print-arch)"; '$'\\\n'
 	archCase+=$'\t''case "$apkArch" in '$'\\\n'
-	for apkArch in $(apkArches "$version"); do
-		dockerArch="$(apkToDockerArch "$version" "$apkArch")"
-		archCase+=$'\t\t'"$apkArch) dockerArch='$dockerArch' ;; "$'\\\n'
+	for apkArch in $(apkArches); do
+		dockerArch="$(apkToDockerArch "$apkArch")"
+		# check whether the given architecture is supported for this release
+		if wget --quiet --spider "https://download.docker.com/linux/static/$channel/$dockerArch/docker-$fullVersion.tgz" &> /dev/null; then
+			bashbrewArch="$(apkToBashbrewArch "$apkArch")"
+			archCase+="# $bashbrewArch"$'\n'
+			archCase+=$'\t\t'"$apkArch) dockerArch='$dockerArch' ;; "$'\\\n'
+		fi
 	done
 	archCase+=$'\t\t''*) echo >&2 "error: unsupported architecture ($apkArch)"; exit 1 ;;'$'\\\n'
 	archCase+=$'\t''esac'
@@ -102,7 +105,7 @@ for version in "${versions[@]}"; do
 	minorVersion="${minorVersion#0}"
 
 	for variant in \
-		'' git dind \
+		'' git dind dind-rootless \
 		windows/windowsservercore-{1709,ltsc2016} \
 	; do
 		dir="$version${variant:+/$variant}"
@@ -122,31 +125,17 @@ for version in "${versions[@]}"; do
 			-e 's!%%ARCH-CASE%%!'"$(sed_escape_rhs "$archCase")"'!g' \
 			"$template" > "$df"
 
+		# DOCKER_TLS_CERTDIR is only enabled-by-default in 19.03+
+		if [ "$majorVersion" -lt 19 ]; then
+			sed -ri -e 's!^(ENV DOCKER_TLS_CERTDIR=).*$!\1!' "$df"
+		fi
+
 		# pigz (https://github.com/moby/moby/pull/35697) is only 18.02+
 		if [ "$majorVersion" -lt 18 ] || { [ "$majorVersion" -eq 18 ] && [ "$minorVersion" -lt 2 ]; }; then
 			sed -ri '/pigz/d' "$df"
-		fi
-
-		if [[ "$variant" == windows/* ]]; then
-			winVariant="$(basename "$variant")"
-
-			case "$winVariant" in
-				*-1709) ;; # no AppVeyor support for 1709 yet: https://github.com/appveyor/ci/issues/1885
-				*) appveyorEnv='\n    - version: '"$version"'\n      variant: '"$winVariant$appveyorEnv" ;;
-			esac
 		fi
 	done
 
 	cp -a docker-entrypoint.sh modprobe.sh "$version/"
 	cp -a dockerd-entrypoint.sh "$version/dind/"
-
-	travisEnv='\n  - VERSION='"$version$travisEnv"
 done
-
-travis="$(awk -v 'RS=\n\n' '$1 == "env:" { $0 = "env:'"$travisEnv"'" } { printf "%s%s", $0, RS }' .travis.yml)"
-echo "$travis" > .travis.yml
-
-if [ -f .appveyor.yml ]; then
-	appveyor="$(awk -v 'RS=\n\n' '$1 == "environment:" { $0 = "environment:\n  matrix:'"$appveyorEnv"'" } { printf "%s%s", $0, RS }' .appveyor.yml)"
-	echo "$appveyor" > .appveyor.yml
-fi
