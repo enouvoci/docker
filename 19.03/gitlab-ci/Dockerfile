@@ -16,7 +16,7 @@ RUN apk add --no-cache \
 RUN curl -O -L https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
     && tar xzf ./kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
     && rm ./kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
-    && cp ./kustomize /usr/bin && chmod +x /usr/bin/kustomize \
+    && mv ./kustomize /usr/bin/kustomize && chmod +x /usr/bin/kustomize \
     && kustomize version
 
 # Install kubectl
