@@ -13,9 +13,11 @@ RUN apk add --no-cache \
         openssh-client
 
 # Install kustomize
-RUN curl -L https://github.com/kubernetes-sigs/kustomize/releases/download/v${KUSTOMIZE_VER}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64  -o /usr/bin/kustomize \
-    && chmod +x /usr/bin/kustomize && \
-    kustomize version
+RUN curl -O -L https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
+    && tar xzf ./kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
+    && rm ./kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz \
+    && cp ./kustomize /usr/bin && chmod +x /usr/bin/kustomize \
+    && kustomize version
 
 # Install kubectl
 RUN curl -L https://storage.googleapis.com/kubernetes-release/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl -o /usr/bin/kubectl \
